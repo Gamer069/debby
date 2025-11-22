@@ -28,6 +28,8 @@ With this utility you're able to:
     ```
     or using the `v` alias.
 
-Tested on *arch btw* but should work on any distro.
+### Technical notes
+- When you install a `.deb` package, debby keeps track of all the files it adds in a database. This allows it to later uninstall the package cleanly without removing any critical system files
+- The database is stored in /root/.local/share/debby/db.sqlite
 
-When you install a `.deb` package, debby keeps track of all the files it adds in a database. This allows it to later uninstall the package cleanly without removing any critical system files
+Tested on *arch btw* but should work on any distro.
