@@ -125,10 +125,10 @@ fn main() {
                     install::uninstall(clio_path, dirs, conn)
                 },
                 UninstallInput::PackageName(pkg_name) => {
-                    install::uninstall_by_pkg_name(pkg_name, dirs, conn);
+                    install::uninstall_by_pkg_name(pkg_name, conn);
                 },
                 UninstallInput::Id(id) => {
-                    install::uninstall_by_id(id, dirs, conn);
+                    install::uninstall_by_id(id, conn);
                 },
             }
         },
@@ -142,6 +142,6 @@ fn main() {
 
             install::all(conn)
         },
-        Commands::View { deb } => view::view(deb, dirs, conn),
+        Commands::View { deb } => view::view(deb, dirs),
     }
 }

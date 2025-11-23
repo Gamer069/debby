@@ -1,14 +1,13 @@
 use std::{fs::File, io::{Cursor, Seek}};
 
-use cli_table::{Cell, CellStruct, Table, TableStruct};
+use cli_table::{Cell, CellStruct, Table};
 use clio::ClioPath;
 use directories::ProjectDirs;
 use log::{error, info};
-use sqlite3::Connection;
 
 use crate::{control::{self, Control}, extract};
 
-pub fn view(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
+pub fn view(deb: ClioPath, dirs: ProjectDirs) {
     if !deb.exists() {
         error!("Failed to view .deb file because the .deb file you specified does not exist.");
         std::process::exit(-1);

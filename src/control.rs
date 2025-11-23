@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use log::info;
 use sqlite3::{Connection, Error, State};
 
 use serde::Deserialize;

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error, fs::File, path::{Path, PathBuf}};
+use std::{collections::HashMap, fs::File, path::{Path, PathBuf}};
 
 use clio::ClioPath;
 use colored::Colorize;
@@ -7,7 +7,7 @@ use log::{error, info, warn};
 use sqlite3::{Connection, State, Value};
 use walkdir::WalkDir;
 
-use crate::{control::{self, Control, ControlWithData}, extract, view, UninstallInput};
+use crate::{control::{self, ControlWithData}, extract, view};
 
 pub fn install(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
     if !deb.exists() {
@@ -108,7 +108,7 @@ pub fn copy(extract_dir: PathBuf) -> String {
         .join(",")
 }
 
-pub fn uninstall_by_pkg_name(pkg_name: String, dirs: ProjectDirs, conn: Connection) {
+pub fn uninstall_by_pkg_name(pkg_name: String, conn: Connection) {
     let mut stmt = conn.prepare("SELECT * FROM debs WHERE package = ?").expect("Failed to prepare statement");
     stmt.bind(1, pkg_name.as_str()).expect("Failed to bind id to prepared statement");
 
@@ -148,7 +148,7 @@ pub fn uninstall_by_pkg_name(pkg_name: String, dirs: ProjectDirs, conn: Connecti
     delete_stmt.next().expect("Failed to run DELETE statement");
 }
 
-pub fn uninstall_by_id(id: usize, dirs: ProjectDirs, conn: Connection) {
+pub fn uninstall_by_id(id: usize, conn: Connection) {
     let mut stmt = conn.prepare("SELECT * FROM debs WHERE id = ?").expect("Failed to prepare statement");
     stmt.bind(1, id as i64).expect("Failed to bind id to prepared statement");
 

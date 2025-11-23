@@ -2,7 +2,6 @@ use std::{collections::HashMap, fs::{self, File}, io::{Read, Seek}, path::{Path,
 
 use ar::Archive;
 use indicatif::{ProgressBar, ProgressStyle};
-use log::info;
 use ptree::TreeBuilder;
 use tar::{Archive as TarArchive, EntryType};
 
