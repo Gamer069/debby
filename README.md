@@ -27,6 +27,11 @@ With this utility you're able to:
     debby view /path/to/deb
     ```
     or using the `v` alias.
+- **See all system-wide installed `.deb` packages** 
+    Quickly see what `.deb` packages are installed on your system with debby by just doing:
+    ```sh
+    debby all
+    ```
 
 ### Technical notes
 - When you install a `.deb` package, debby keeps track of all the files it adds in a database. This allows it to later uninstall the package cleanly without removing any critical system files
