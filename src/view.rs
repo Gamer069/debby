@@ -58,7 +58,7 @@ pub fn view(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
     println!("{}", out);
 }
 
-fn truncate(s: &str, max_len: usize) -> String {
+pub fn truncate(s: &str, max_len: usize) -> String {
     if s.len() > max_len {
         format!("{}...", &s[..max_len])
     } else {

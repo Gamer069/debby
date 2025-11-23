@@ -191,7 +191,7 @@ pub fn parse_control(control: String) -> Control {
     from_map(kvs)
 }
 
-fn from_map(map: HashMap<String, String>) -> Control {
+pub fn from_map(map: HashMap<String, String>) -> Control {
     serde_json::from_value(serde_json::Value::Object(
         map.into_iter()
             .map(|(k, v)| (k.to_lowercase(), v.into()))

@@ -3,7 +3,7 @@ pub mod view;
 pub mod control;
 pub mod extract;
 
-use std::fs;
+use std::{fs, str::FromStr};
 
 use clap::{Parser, Subcommand};
 use clio::ClioPath;
@@ -25,6 +25,27 @@ struct Cli {
     cmd: Commands
 }
 
+#[derive(Clone, Debug)]
+pub enum UninstallInput {
+    Path(ClioPath),
+    PackageName(String),
+    Id(usize)
+}
+
+impl FromStr for UninstallInput {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(id) = s.parse::<usize>() {
+            Ok(UninstallInput::Id(id))
+        } else if s.ends_with(".deb") {
+            Ok(UninstallInput::Path(ClioPath::new(s).unwrap()))
+        } else {
+            Ok(UninstallInput::PackageName(s.to_string()))
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Commands {
     #[command(alias = "i", about = "Install a package (alias: i)")]
@@ -34,7 +55,8 @@ enum Commands {
 
     #[command(alias = "u", about = "Uninstall a package (alias: u)")]
     Uninstall {
-        deb: ClioPath
+        // deb: ClioPath
+        deb: UninstallInput
     },
 
     #[command(alias = "v", about = "View package info (alias: v)")]
@@ -45,7 +67,10 @@ enum Commands {
     #[command(alias = "c", about = "Check if package is installed or not (alias: c)")]
     Check {
         deb: ClioPath
-    }
+    },
+
+    #[command(alias = "a", about = "Fetches all installed packages (alias: a)")]
+    All,
 }
 
 fn main() {
@@ -65,8 +90,6 @@ fn main() {
         .init();
 
     let cli = Cli::parse();
-
-    sudo::escalate_if_needed().expect("Failed to escalate to root");
 
     let dirs = ProjectDirs::from("me", "illia", "debby").unwrap();
     let db_path = dirs.data_dir().join("deb.sqlite");
@@ -89,9 +112,36 @@ fn main() {
     ).expect("Failed to create table if not exists to store installed debs");
 
     match cli.cmd {
-        Commands::Install { deb } => install::install(deb, dirs, conn),
-        Commands::Uninstall { deb } => install::uninstall(deb, dirs, conn),
+        Commands::Install { deb } => {
+            sudo::escalate_if_needed().expect("Failed to escalate to root");
+
+            install::install(deb, dirs, conn)
+        },
+        Commands::Uninstall { deb } => {
+            sudo::escalate_if_needed().expect("Failed to escalate to root");
+
+            match deb {
+                UninstallInput::Path(clio_path) => {
+                    install::uninstall(clio_path, dirs, conn)
+                },
+                UninstallInput::PackageName(pkg_name) => {
+                    install::uninstall_by_pkg_name(pkg_name, dirs, conn);
+                },
+                UninstallInput::Id(id) => {
+                    install::uninstall_by_id(id, dirs, conn);
+                },
+            }
+        },
+        Commands::Check { deb } => {
+            sudo::escalate_if_needed().expect("Failed to escalate to root");
+
+            install::is_installed(deb, dirs, conn)
+        },
+        Commands::All => {
+            sudo::escalate_if_needed().expect("Failed to escalate to root");
+
+            install::all(conn)
+        },
         Commands::View { deb } => view::view(deb, dirs, conn),
-        Commands::Check { deb } => install::is_installed(deb, dirs, conn),
     }
 }

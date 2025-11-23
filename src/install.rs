@@ -1,13 +1,13 @@
-use std::{error, fs::File, path::{Path, PathBuf}};
+use std::{collections::HashMap, error, fs::File, path::{Path, PathBuf}};
 
 use clio::ClioPath;
 use colored::Colorize;
 use directories::ProjectDirs;
 use log::{error, info, warn};
-use sqlite3::Connection;
+use sqlite3::{Connection, State, Value};
 use walkdir::WalkDir;
 
-use crate::{control::{self, ControlWithData}, extract};
+use crate::{control::{self, Control, ControlWithData}, extract, view, UninstallInput};
 
 pub fn install(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
     if !deb.exists() {
@@ -108,6 +108,83 @@ pub fn copy(extract_dir: PathBuf) -> String {
         .join(",")
 }
 
+pub fn uninstall_by_pkg_name(pkg_name: String, dirs: ProjectDirs, conn: Connection) {
+    let mut stmt = conn.prepare("SELECT * FROM debs WHERE package = ?").expect("Failed to prepare statement");
+    stmt.bind(1, pkg_name.as_str()).expect("Failed to bind id to prepared statement");
+
+    let state = stmt.next().expect("Failed to get pkg by id");
+
+    if state == State::Row {
+        let mut map = HashMap::new();
+        let col_names = stmt.column_names().unwrap();
+
+        for i in 0..stmt.columns() {
+            let col_name = col_names[i].clone();
+
+            if col_name == "package" { continue }
+
+            let val = match stmt.read::<Value>(i).expect("Failed to read value of column") {
+                Value::Binary(_) => "<binary>".to_string(),
+                Value::Float(f) => f.to_string(),
+                Value::Integer(i) => i.to_string(),
+                Value::String(s) => s,
+                Value::Null => "null".to_string(),
+            };
+            map.insert(col_name, val);
+        }
+
+        let ctrl = control::from_map(map.clone());
+        let cwd = ControlWithData { ctrl, installed: map.get("installed").unwrap().to_string() };
+
+        uninstall_ctrl(cwd);
+    } else {
+        info!("Package is not installed, cleaning up...");
+    }
+
+    let mut delete_stmt = conn.prepare("DELETE FROM debs WHERE package = ?").expect("Failed to prepare DELETE statement");
+
+    delete_stmt.bind(1, pkg_name.as_str()).expect("Failed to bind package name to DELETE statement");
+
+    delete_stmt.next().expect("Failed to run DELETE statement");
+}
+
+pub fn uninstall_by_id(id: usize, dirs: ProjectDirs, conn: Connection) {
+    let mut stmt = conn.prepare("SELECT * FROM debs WHERE id = ?").expect("Failed to prepare statement");
+    stmt.bind(1, id as i64).expect("Failed to bind id to prepared statement");
+
+    let state = stmt.next().expect("Failed to get pkg by id");
+
+    if state == State::Row {
+        let mut map = HashMap::new();
+        let col_names = stmt.column_names().unwrap();
+
+        for i in 0..stmt.columns() {
+            let col_name = col_names[i].clone();
+
+            if col_name == "id" { continue }
+
+            let val = match stmt.read::<Value>(i).expect("Failed to read value of column") {
+                Value::Binary(_) => "<binary>".to_string(),
+                Value::Float(f) => f.to_string(),
+                Value::Integer(i) => i.to_string(),
+                Value::String(s) => s,
+                Value::Null => "null".to_string(),
+            };
+            map.insert(col_name, val);
+        }
+
+        let ctrl = control::from_map(map.clone());
+        let cwd = ControlWithData { ctrl, installed: map.get("installed").unwrap().to_string() };
+        uninstall_ctrl(cwd);
+    }
+
+    let mut delete_stmt = conn.prepare("DELETE FROM debs WHERE id = ?").expect("Failed to prepare DELETE statement");
+
+    delete_stmt.bind(1, id as i64).expect("Failed to bind id to DELETE statement");
+
+    delete_stmt.next().expect("Failed to run DELETE statement");
+}
+
 pub fn uninstall(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
     if !deb.exists() {
         error!("Failed to install .deb file because the .deb file you specified does not exist.");
@@ -172,6 +249,7 @@ pub fn uninstall_ctrl(ctrl: ControlWithData) {
     for path in installed_paths {
         if let Ok(metadata) = std::fs::symlink_metadata(&path) {
             if metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+                info!("Deleting {}...", path.to_str().unwrap());
                 if let Err(e) = std::fs::remove_file(&path) {
                     warn!("Failed to remove file/symlink {}: {}", path.display(), e);
                 }
@@ -216,5 +294,24 @@ pub fn is_installed(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
         _ => {
             info!("The specified package is {} installed.", "NOT".bold().red().italic());
         }
+    }
+}
+
+pub fn all(conn: Connection) {
+    let mut stmt = conn.prepare("SELECT * FROM debs").expect("Failed to prepare statement");
+
+    while stmt.next().expect("Failed to get row") == State::Row {
+        let mut table: Vec<Vec<String>> = vec![];
+
+        for i in 0..stmt.columns() {
+            let col = stmt.column_names().unwrap()[i].clone();
+            if let Ok(val) = stmt.read::<String>(i) {
+                table.push(vec![col, view::truncate(val.as_str(), 50)]);
+            }
+        }
+
+        cli_table::print_stdout(table).expect("Failed to print all installed packages");
+
+        println!("\n");
     }
 }
