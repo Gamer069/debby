@@ -83,9 +83,17 @@ impl ControlWithData {
             modified_map.remove("installed");
             modified_map.remove("id");
 
-            let installed = map.get("installed").unwrap().to_string();
+            let installed = match map.get("installed") {
+                Some(installed) => installed.to_string(),
+                None => return Err(sqlite3::Error{code: None, message: Some("Could not find 'installed' field".to_string())})
+            };
 
-            let cwd = Self { ctrl: from_map(modified_map), installed };
+            let ctrl = match from_map(modified_map) {
+                Ok(ctrl) => ctrl,
+                Err(e) => return Err(sqlite3::Error{code: None, message: Some(format!("Failed to parse control file: {}", e))})
+            };
+
+            let cwd = Self { ctrl, installed };
 
             Ok(cwd)
         } else {
@@ -137,7 +145,7 @@ fn format_field<T: SqlFormat>(field: &T) -> String {
     field.format_sql()
 }
 
-fielded_struct!{
+fielded_struct! {
     #[derive(Debug, Deserialize, PartialEq, Eq, Clone)]
     pub struct Control {
         pub package: String,
@@ -165,7 +173,7 @@ fielded_struct!{
     }
 }
 
-pub fn parse_control(control: String) -> Control {
+pub fn parse_control(control: String) -> Result<Control, serde_json::Error> {
     let lines = control.lines().collect::<Vec<_>>();
     let mut kvs: HashMap<String, String> = HashMap::new();
     let mut current_key: Option<String> = None;
@@ -190,10 +198,10 @@ pub fn parse_control(control: String) -> Control {
     from_map(kvs)
 }
 
-pub fn from_map(map: HashMap<String, String>) -> Control {
+pub fn from_map(map: HashMap<String, String>) -> Result<Control, serde_json::Error> {
     serde_json::from_value(serde_json::Value::Object(
         map.into_iter()
             .map(|(k, v)| (k.to_lowercase(), v.into()))
             .collect()
-    )).unwrap()
+    ))
 }

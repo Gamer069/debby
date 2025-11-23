@@ -26,7 +26,13 @@ pub fn view(deb: ClioPath, dirs: ProjectDirs) {
     let _ = std::fs::remove_dir_all(&extract_dir);
 
     let ctrl_str = extract::extract_control(f.try_clone().expect("Failed to clone file")).expect("Failed to extract control");
-    let ctrl = control::parse_control(ctrl_str);
+    let ctrl = match control::parse_control(ctrl_str) {
+        Ok(ctrl) => ctrl,
+        Err(e) => {
+            error!("Failed to parse control file: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     f.seek(std::io::SeekFrom::Start(0)).unwrap();
 
@@ -34,7 +40,11 @@ pub fn view(deb: ClioPath, dirs: ProjectDirs) {
     let mut table: Vec<Vec<CellStruct>> = vec![];
 
     for field in Control::fields() {
-        let val = ctrl.field(field.as_str()).unwrap();
+        let val = if let Some(val) = ctrl.field(field.as_str()) {
+            val
+        } else {
+            continue;
+        };
         let val = if val == "NULL".to_string() {
             continue;
         } else {
@@ -54,6 +64,8 @@ pub fn view(deb: ClioPath, dirs: ProjectDirs) {
 
     let out = String::from_utf8(buf.into_inner()).expect("invalid UTF-8");
 
+    // the only usage of println in this project JUST BECAUSE i dont want a prefix when priting
+    // file tree
     println!("{}", out);
 }
 

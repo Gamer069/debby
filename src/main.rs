@@ -8,7 +8,7 @@ use std::{fs, str::FromStr};
 use clap::{Parser, Subcommand};
 use clio::ClioPath;
 use directories::ProjectDirs;
-use log::{trace, Level};
+use log::{error, trace, Level};
 use sqlite3::Connection;
 use std::io::Write as _;
 
@@ -21,6 +21,9 @@ use crate::control::Control;
     about = "Installs .deb files on systems which don't support them without overcomplicating everything"
 )]
 struct Cli {
+    #[arg(short, long, help = "Enable verbose logging (alias: v)")]
+    verbose: bool,
+
     #[command(subcommand)]
     cmd: Commands
 }
@@ -39,7 +42,10 @@ impl FromStr for UninstallInput {
         if let Ok(id) = s.parse::<usize>() {
             Ok(UninstallInput::Id(id))
         } else if s.ends_with(".deb") {
-            Ok(UninstallInput::Path(ClioPath::new(s).unwrap()))
+            match ClioPath::new(s) {
+                Ok(path) => Ok(UninstallInput::Path(path)),
+                Err(e) => Err(e.to_string()),
+            }
         } else {
             Ok(UninstallInput::PackageName(s.to_string()))
         }
@@ -91,16 +97,33 @@ fn main() {
 
     let cli = Cli::parse();
 
-    let dirs = ProjectDirs::from("me", "illia", "debby").unwrap();
+    let dirs = match ProjectDirs::from("me", "illia", "debby") {
+        Some(dirs) => dirs,
+        None => {
+            error!("Failed to get project directories");
+            std::process::exit(1);
+        }
+    };
     let db_path = dirs.data_dir().join("deb.sqlite");
 
     trace!("db path: {:?}", db_path);
 
-    let _ = fs::create_dir_all(db_path.parent().unwrap()); // error silently
+    if let Some(parent) = db_path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            error!("Failed to create data directory: {}", e);
+            std::process::exit(1);
+        }
+    }
 
-    let conn = Connection::open(&db_path).expect("Failed to open sqlite connection");
+    let conn = match Connection::open(&db_path) {
+        Ok(conn) => conn,
+        Err(e) => {
+            error!("Failed to open sqlite connection: {}", e);
+            std::process::exit(1);
+        }
+    };
 
-    conn.execute(
+    if let Err(e) = conn.execute(
         format!(
             "CREATE TABLE IF NOT EXISTS debs (
                 id INTEGER PRIMARY KEY,
@@ -109,36 +132,51 @@ fn main() {
             )",
             Control::sql_fields()
         )
-    ).expect("Failed to create table if not exists to store installed debs");
+    ) {
+        error!("Failed to create table: {}", e);
+        std::process::exit(1);
+    }
 
     match cli.cmd {
         Commands::Install { deb } => {
-            sudo::escalate_if_needed().expect("Failed to escalate to root");
+            if let Err(e) = sudo::escalate_if_needed() {
+                error!("Failed to escalate to root: {}", e);
+                std::process::exit(1);
+            }
 
-            install::install(deb, dirs, conn)
+            install::install(deb, dirs, conn, cli.verbose)
         },
         Commands::Uninstall { deb } => {
-            sudo::escalate_if_needed().expect("Failed to escalate to root");
+            if let Err(e) = sudo::escalate_if_needed() {
+                error!("Failed to escalate to root: {}", e);
+                std::process::exit(1);
+            }
 
             match deb {
                 UninstallInput::Path(clio_path) => {
-                    install::uninstall(clio_path, dirs, conn)
+                    install::uninstall(clio_path, dirs, conn, cli.verbose)
                 },
                 UninstallInput::PackageName(pkg_name) => {
-                    install::uninstall_by_pkg_name(pkg_name, conn);
+                    install::uninstall_by_pkg_name(pkg_name, conn, cli.verbose);
                 },
                 UninstallInput::Id(id) => {
-                    install::uninstall_by_id(id, conn);
+                    install::uninstall_by_id(id, conn, cli.verbose);
                 },
             }
         },
         Commands::Check { deb } => {
-            sudo::escalate_if_needed().expect("Failed to escalate to root");
+            if let Err(e) = sudo::escalate_if_needed() {
+                error!("Failed to escalate to root: {}", e);
+                std::process::exit(1);
+            }
 
             install::is_installed(deb, dirs, conn)
         },
         Commands::All => {
-            sudo::escalate_if_needed().expect("Failed to escalate to root");
+            if let Err(e) = sudo::escalate_if_needed() {
+                error!("Failed to escalate to root: {}", e);
+                std::process::exit(1);
+            }
 
             install::all(conn)
         },

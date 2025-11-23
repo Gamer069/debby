@@ -9,7 +9,7 @@ use walkdir::WalkDir;
 
 use crate::{control::{self, ControlWithData}, extract, view};
 
-pub fn install(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
+pub fn install(deb: ClioPath, dirs: ProjectDirs, conn: Connection, verbose: bool) {
     if !deb.exists() {
         error!("Failed to install .deb file because the .deb file you specified does not exist.");
         std::process::exit(-1);
@@ -36,10 +36,16 @@ pub fn install(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
         std::process::exit(-1);
     }
 
-    let installed = copy(extract_dir);
+    let installed = copy(extract_dir, verbose);
 
     let ctrl_str = std::fs::read_to_string(ctrl_path).expect("Failed to read control file");
-    let ctrl = control::parse_control(ctrl_str);
+    let ctrl = match control::parse_control(ctrl_str) {
+        Ok(ctrl) => ctrl,
+        Err(e) => {
+            error!("Failed to parse control file: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     let (cols, vals) = ctrl.populate_sql();
 
@@ -55,7 +61,7 @@ pub fn install(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
     ).expect("Failed to insert deb");
 }
 
-pub fn copy(extract_dir: PathBuf) -> String {
+pub fn copy(extract_dir: PathBuf, verbose: bool) -> String {
     let mut copied_files: Vec<PathBuf> = vec![];
     let data_dir = extract_dir.join("data");
 
@@ -70,6 +76,10 @@ pub fn copy(extract_dir: PathBuf) -> String {
         // Get relative path from data/
         let rel = path.strip_prefix(&data_dir).unwrap();
         let dest = Path::new("/").join(rel);
+
+        if verbose {
+            info!("Copying {} to {}", path.display(), dest.display());
+        }
 
         let result = if entry.file_type().is_dir() {
             std::fs::create_dir_all(&dest)
@@ -108,7 +118,7 @@ pub fn copy(extract_dir: PathBuf) -> String {
         .join(",")
 }
 
-pub fn uninstall_by_pkg_name(pkg_name: String, conn: Connection) {
+pub fn uninstall_by_pkg_name(pkg_name: String, conn: Connection, verbose: bool) {
     let mut stmt = conn.prepare("SELECT * FROM debs WHERE package = ?").expect("Failed to prepare statement");
     stmt.bind(1, pkg_name.as_str()).expect("Failed to bind id to prepared statement");
 
@@ -133,10 +143,16 @@ pub fn uninstall_by_pkg_name(pkg_name: String, conn: Connection) {
             map.insert(col_name, val);
         }
 
-        let ctrl = control::from_map(map.clone());
+        let ctrl = match control::from_map(map.clone()) {
+            Ok(ctrl) => ctrl,
+            Err(e) => {
+                error!("Failed to parse control file: {}", e);
+                std::process::exit(1);
+            }
+        };
         let cwd = ControlWithData { ctrl, installed: map.get("installed").unwrap().to_string() };
 
-        uninstall_ctrl(cwd);
+        uninstall_ctrl(cwd, verbose);
     } else {
         info!("Package is not installed, cleaning up...");
     }
@@ -148,7 +164,7 @@ pub fn uninstall_by_pkg_name(pkg_name: String, conn: Connection) {
     delete_stmt.next().expect("Failed to run DELETE statement");
 }
 
-pub fn uninstall_by_id(id: usize, conn: Connection) {
+pub fn uninstall_by_id(id: usize, conn: Connection, verbose: bool) {
     let mut stmt = conn.prepare("SELECT * FROM debs WHERE id = ?").expect("Failed to prepare statement");
     stmt.bind(1, id as i64).expect("Failed to bind id to prepared statement");
 
@@ -173,9 +189,15 @@ pub fn uninstall_by_id(id: usize, conn: Connection) {
             map.insert(col_name, val);
         }
 
-        let ctrl = control::from_map(map.clone());
+        let ctrl = match control::from_map(map.clone()) {
+            Ok(ctrl) => ctrl,
+            Err(e) => {
+                error!("Failed to parse control file: {}", e);
+                std::process::exit(1);
+            }
+        };
         let cwd = ControlWithData { ctrl, installed: map.get("installed").unwrap().to_string() };
-        uninstall_ctrl(cwd);
+        uninstall_ctrl(cwd, verbose);
     }
 
     let mut delete_stmt = conn.prepare("DELETE FROM debs WHERE id = ?").expect("Failed to prepare DELETE statement");
@@ -185,7 +207,7 @@ pub fn uninstall_by_id(id: usize, conn: Connection) {
     delete_stmt.next().expect("Failed to run DELETE statement");
 }
 
-pub fn uninstall(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
+pub fn uninstall(deb: ClioPath, dirs: ProjectDirs, conn: Connection, verbose: bool) {
     if !deb.exists() {
         error!("Failed to install .deb file because the .deb file you specified does not exist.");
         std::process::exit(-1);
@@ -210,12 +232,18 @@ pub fn uninstall(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
     }
 
     let ctrl_str = opt_ctrl.unwrap();
-    let ctrl = control::parse_control(ctrl_str);
+    let ctrl = match control::parse_control(ctrl_str) {
+        Ok(ctrl) => ctrl,
+        Err(e) => {
+            error!("Failed to parse control file: {}", e);
+            std::process::exit(1);
+        }
+    };
     let installed_ctrl = ControlWithData::from_db(&conn, &ctrl.package, &ctrl.version);
 
     match installed_ctrl {
         Ok(installed_ctrl) if installed_ctrl.ctrl == ctrl => {
-            uninstall_ctrl(installed_ctrl);
+            uninstall_ctrl(installed_ctrl, verbose);
             let query = "DELETE FROM debs WHERE package = ? AND version = ?";
 
             let stmt = conn.prepare(&query);
@@ -239,23 +267,31 @@ pub fn uninstall(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
     info!("Uninstalled .deb package.");
 }
 
-pub fn uninstall_ctrl(ctrl: ControlWithData) {
+pub fn uninstall_ctrl(ctrl: ControlWithData, verbose: bool) {
     let installed_paths: Vec<PathBuf> = ctrl.installed
         .split(',')
         .filter(|s| !s.is_empty())
         .map(|s| PathBuf::from(s.trim()))
         .collect();
 
+    let mut deleted = 0;
+
     for path in installed_paths {
         if let Ok(metadata) = std::fs::symlink_metadata(&path) {
             if metadata.file_type().is_file() || metadata.file_type().is_symlink() {
-                info!("Deleting {}...", path.to_str().unwrap());
+                if verbose {
+                    info!("Deleting {}...", path.to_str().unwrap());
+                }
+
                 if let Err(e) = std::fs::remove_file(&path) {
                     warn!("Failed to remove file/symlink {}: {}", path.display(), e);
+                } else {
+                    deleted += 1;
                 }
             }
         }
     }
+    info!("Deleted {deleted} files");
 }
 
 pub fn is_installed(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
@@ -283,7 +319,13 @@ pub fn is_installed(deb: ClioPath, dirs: ProjectDirs, conn: Connection) {
     }
 
     let ctrl_str = opt_ctrl.unwrap();
-    let ctrl = control::parse_control(ctrl_str);
+    let ctrl = match control::parse_control(ctrl_str) {
+        Ok(ctrl) => ctrl,
+        Err(e) => {
+            error!("Failed to parse control file: {}", e);
+            std::process::exit(1);
+        }
+    };
     let installed_ctrl = ControlWithData::from_db(&conn, &ctrl.package, &ctrl.version);
 
     match installed_ctrl {
@@ -312,6 +354,6 @@ pub fn all(conn: Connection) {
 
         cli_table::print_stdout(table).expect("Failed to print all installed packages");
 
-        println!("\n");
+        println!();
     }
 }
