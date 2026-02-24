@@ -8,6 +8,7 @@ use tar::{Archive as TarArchive, EntryType};
 use bzip2::read::BzDecoder;
 use flate2::read::GzDecoder;
 use xz2::read::XzDecoder;
+use zstd::stream::read::Decoder as ZstdDecoder;
 
 pub fn extract_to(extract_dir: PathBuf, f: File) {
     let _ = fs::create_dir_all(&extract_dir); // error silently
@@ -27,7 +28,10 @@ pub fn extract_to(extract_dir: PathBuf, f: File) {
     let mut archive = Archive::new(f.try_clone().expect("Failed to clone file"));
 
     while let Some(entry) = archive.next_entry().transpose().expect("Failed to transpose new entry") {
-        let name = String::from_utf8_lossy(entry.header().identifier()).to_string();
+        let name = String::from_utf8_lossy(entry.header().identifier())
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
 
         let decoder: Option<Box<dyn Read>> = if name.ends_with(".tar.gz") {
             Some(Box::new(GzDecoder::new(entry)))
@@ -35,6 +39,10 @@ pub fn extract_to(extract_dir: PathBuf, f: File) {
             Some(Box::new(XzDecoder::new(entry)))
         } else if name.ends_with(".tar.bz2") {
             Some(Box::new(BzDecoder::new(entry)))
+        } else if name.ends_with(".tar.zst") {
+            ZstdDecoder::new(entry)
+                .ok()
+                .map(|decoder| Box::new(decoder) as Box<dyn Read>)
         } else {
             None
         };
@@ -85,7 +93,10 @@ pub fn count(f: &File) -> usize {
     let mut archive = Archive::new(f);
 
     while let Some(entry) = archive.next_entry().transpose().expect("Failed to transpose new entry") {
-        let name = String::from_utf8_lossy(entry.header().identifier()).to_string();
+        let name = String::from_utf8_lossy(entry.header().identifier())
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
 
         let decoder: Option<Box<dyn Read>> = if name.ends_with(".tar.gz") {
             Some(Box::new(GzDecoder::new(entry)))
@@ -93,6 +104,10 @@ pub fn count(f: &File) -> usize {
             Some(Box::new(XzDecoder::new(entry)))
         } else if name.ends_with(".tar.bz2") {
             Some(Box::new(BzDecoder::new(entry)))
+        } else if name.ends_with(".tar.zst") {
+            ZstdDecoder::new(entry)
+                .ok()
+                .map(|decoder| Box::new(decoder) as Box<dyn Read>)
         } else {
             None
         };
@@ -111,7 +126,10 @@ pub fn extract_control(f: File) -> Option<String> {
     let mut archive = Archive::new(f);
 
     while let Some(entry) = archive.next_entry().transpose().ok()? {
-        let name = String::from_utf8_lossy(entry.header().identifier()).to_string();
+        let name = String::from_utf8_lossy(entry.header().identifier())
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
 
         let decoder: Option<Box<dyn Read>> = if name == "control.tar.gz" {
             Some(Box::new(GzDecoder::new(entry)))
@@ -119,6 +137,10 @@ pub fn extract_control(f: File) -> Option<String> {
             Some(Box::new(XzDecoder::new(entry)))
         } else if name == "control.tar.bz2" {
             Some(Box::new(BzDecoder::new(entry)))
+        } else if name == "control.tar.zst" {
+            ZstdDecoder::new(entry)
+                .ok()
+                .map(|decoder| Box::new(decoder) as Box<dyn Read>)
         } else {
             None
         };
@@ -148,7 +170,10 @@ pub fn extract_files_tree(f: File) -> ptree::item::StringItem {
     let mut builder = TreeBuilder::new("package".to_string());
 
     while let Some(entry) = archive.next_entry().transpose().expect("ar read fail") {
-        let name = String::from_utf8_lossy(entry.header().identifier()).to_string();
+        let name = String::from_utf8_lossy(entry.header().identifier())
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
         
         let decoder: Option<Box<dyn Read>> = if name.ends_with(".tar.gz") {
             Some(Box::new(GzDecoder::new(entry)))
@@ -156,6 +181,10 @@ pub fn extract_files_tree(f: File) -> ptree::item::StringItem {
             Some(Box::new(XzDecoder::new(entry)))
         } else if name.ends_with(".tar.bz2") {
             Some(Box::new(BzDecoder::new(entry)))
+        } else if name.ends_with(".tar.zst") {
+            ZstdDecoder::new(entry)
+                .ok()
+                .map(|decoder| Box::new(decoder) as Box<dyn Read>)
         } else {
             None
         };

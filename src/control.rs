@@ -8,6 +8,7 @@ macro_rules! fielded_struct {
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
             $(
+                $(#[$fmeta:meta])*
                 $fvis:vis $fname:ident : $ftype:ty
             ),* $(,)?
         }
@@ -15,6 +16,7 @@ macro_rules! fielded_struct {
         $(#[$meta])*
         $vis struct $name {
             $(
+                $(#[$fmeta])*
                 $fvis $fname: $ftype
             ),*
         }
@@ -152,6 +154,7 @@ fielded_struct! {
 		pub version: String,
 		pub architecture: String,
 		pub maintainer: String,
+        #[serde(default)]
 		pub description: String,
 
 		pub depends: Option<String>,
